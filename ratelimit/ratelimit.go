@@ -129,8 +129,11 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	if !hasExpire {
 		panic(fmt.Sprintf("key expire not set: key='%s'", key))
 	}
+	if expire.IsZero() {
+		panic(fmt.Sprintf("key expire is zero: key='%s'", key))
+	}
 
-	const hotCache = false // ???
+	const hotCache = true // ???
 
 	// save key back with updated value
 	errSet := l.group.Set(ctx, key, data, expire, hotCache)
