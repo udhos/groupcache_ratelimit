@@ -36,6 +36,9 @@ type Options struct {
 
 	// GroupcacheSizeBytes limits the cache size. If unspecified, defaults to 10MB.
 	GroupcacheSizeBytes int64
+
+	RemoveBeforeReinsert bool
+	ReinsertExpired      bool
 }
 
 // Limiter implements rate limiting.
@@ -118,13 +121,13 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 
 	str := string(dst)
 
-	value, errConv := strconv.Atoi(str)
+	counter, errConv := strconv.Atoi(str)
 	if errConv != nil {
 		return true, errConv
 	}
 
-	value++
-	data := []byte(strconv.Itoa(value))
+	counter++
+	data := []byte(strconv.Itoa(counter))
 
 	expire, hasExpire := l.getExpire(key) // keep key existing expire
 	if !hasExpire {
@@ -139,24 +142,36 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	//
 
 	// 1/2: remove key
-	if errRemove := l.group.Remove(ctx, key); errRemove != nil {
-		log.Printf("ratelimit.Consume: remove key='%s' error: %v",
-			key, errRemove)
+	if l.options.RemoveBeforeReinsert {
+		if errRemove := l.group.Remove(ctx, key); errRemove != nil {
+			log.Printf("ratelimit.Consume: remove key='%s' error: %v",
+				key, errRemove)
+		}
 	}
+
+	remain := time.Until(expire)
+	expired := remain > 0
 
 	// 2/2: reinsert key
 	const hotCache = false // ???
-	if errSet := l.group.Set(ctx, key, data, expire,
-		hotCache); errSet != nil {
-		return true, errSet
+	if l.options.ReinsertExpired {
+		if errSet := l.group.Set(ctx, key, data, expire,
+			hotCache); errSet != nil {
+			return true, errSet
+		}
+	} else {
+		if !expired {
+			if errSet := l.group.Set(ctx, key, data, expire,
+				hotCache); errSet != nil {
+				return true, errSet
+			}
+		}
 	}
 
-	accept := value <= l.options.Slots
+	accept := !expired && counter <= l.options.Slots
 
-	remain := time.Until(expire)
-
-	log.Printf("ratelimit.Consume: key='%s' count=%d/%d interval=%v/%v accept=%t",
-		key, value, l.options.Slots, remain, l.options.Interval, accept)
+	log.Printf("ratelimit.Consume: key='%s' count=%d/%d interval=%v/%v expired=%t accept=%t",
+		key, counter, l.options.Slots, remain, l.options.Interval, expired, accept)
 
 	return accept, nil
 }
