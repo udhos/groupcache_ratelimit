@@ -3,6 +3,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -89,11 +90,11 @@ func New(options Options) *Limiter {
 	return &lim
 }
 
-func (l *Limiter) getExpire(key string) time.Time {
+func (l *Limiter) getExpire(key string) (time.Time, bool) {
 	l.lock.Lock()
-	e := l.expire[key]
+	e, found := l.expire[key]
 	l.lock.Unlock()
-	return e
+	return e, found
 }
 
 func (l *Limiter) setExpire(key string, expire time.Time) {
@@ -124,7 +125,10 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	value++
 	data := []byte(strconv.Itoa(value))
 
-	expire := l.getExpire(key) // keep key existing expire
+	expire, hasExpire := l.getExpire(key) // keep key existing expire
+	if !hasExpire {
+		panic(fmt.Sprintf("key expire not set: key='%s'", key))
+	}
 
 	const hotCache = false // ???
 
