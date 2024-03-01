@@ -34,9 +34,6 @@ type Options struct {
 
 	// GroupcacheSizeBytes limits the cache size. If unspecified, defaults to 10MB.
 	GroupcacheSizeBytes int64
-
-	RemoveBeforeReinsert bool
-	ReinsertExpired      bool
 }
 
 // Limiter implements rate limiting.
@@ -44,7 +41,6 @@ type Limiter struct {
 	options Options
 	group   *groupcache.Group
 	expire  map[string]time.Time
-	//lock    sync.Mutex
 }
 
 // DefaultGroupcacheSizeBytes is default for unspecified Options GroupcacheSizeBytes.
@@ -102,21 +98,6 @@ type counter struct {
 	Expire time.Time `json:"expire"`
 }
 
-/*
-func (l *Limiter) getExpire(key string) (time.Time, bool) {
-	l.lock.Lock()
-	e, found := l.expire[key]
-	l.lock.Unlock()
-	return e, found
-}
-
-func (l *Limiter) setExpire(key string, expire time.Time) {
-	l.lock.Lock()
-	l.expire[key] = expire
-	l.lock.Unlock()
-}
-*/
-
 // Consume attempts to consume the rate limiter.
 // It returns true if the rate limiter allows access,
 // or false if the rate limiter denies access.
@@ -137,39 +118,14 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 
 	count.Value++
 
-	/*
-		str := string(dst)
-
-		counter, errConv := strconv.Atoi(str)
-		if errConv != nil {
-			return true, errConv
-		}
-
-		counter++
-		data := []byte(strconv.Itoa(counter))
-	*/
-
-	//expire, hasExpire := l.getExpire(key) // keep key existing expire
-
-	/*
-		if !hasExpire {
-			panic(fmt.Sprintf("key expire not set: key='%s'", key))
-		}
-		if expire.IsZero() {
-			panic(fmt.Sprintf("key expire is zero: key='%s'", key))
-		}
-	*/
-
 	//
 	// save key back with updated value
 	//
 
 	// 1/2: remove key
-	if l.options.RemoveBeforeReinsert {
-		if errRemove := l.group.Remove(ctx, key); errRemove != nil {
-			log.Printf("ratelimit.Consume: remove key='%s' error: %v",
-				key, errRemove)
-		}
+	if errRemove := l.group.Remove(ctx, key); errRemove != nil {
+		log.Printf("ratelimit.Consume: remove key='%s' error: %v",
+			key, errRemove)
 	}
 
 	remain := time.Until(count.Expire)
@@ -183,17 +139,10 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	}
 
 	const hotCache = false // ???
-	if l.options.ReinsertExpired {
+	if !expired {
 		if errSet := l.group.Set(ctx, key, data, count.Expire,
 			hotCache); errSet != nil {
 			return true, errSet
-		}
-	} else {
-		if !expired {
-			if errSet := l.group.Set(ctx, key, data, count.Expire,
-				hotCache); errSet != nil {
-				return true, errSet
-			}
 		}
 	}
 
