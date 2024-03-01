@@ -4,6 +4,7 @@ package ratelimit
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -110,8 +111,8 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 
 	var dst []byte
 
-	errGet := l.group.Get(ctx, key, groupcache.AllocatingByteSliceSink(&dst))
-	if errGet != nil {
+	if errGet := l.group.Get(ctx, key,
+		groupcache.AllocatingByteSliceSink(&dst)); errGet != nil {
 		return true, errGet
 	}
 
@@ -133,11 +134,20 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 		panic(fmt.Sprintf("key expire is zero: key='%s'", key))
 	}
 
-	const hotCache = true // ???
-
+	//
 	// save key back with updated value
-	errSet := l.group.Set(ctx, key, data, expire, hotCache)
-	if errSet != nil {
+	//
+
+	// 1/2: remove key
+	if errRemove := l.group.Remove(ctx, key); errRemove != nil {
+		log.Printf("ratelimit.Consume: remove key='%s' error: %v",
+			key, errRemove)
+	}
+
+	// 2/2: reinsert key
+	const hotCache = false // ???
+	if errSet := l.group.Set(ctx, key, data, expire,
+		hotCache); errSet != nil {
 		return true, errSet
 	}
 
