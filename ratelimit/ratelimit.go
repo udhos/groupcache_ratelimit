@@ -153,6 +153,11 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 
 	accept := value <= l.options.Slots
 
+	remain := time.Until(expire)
+
+	log.Printf("ratelimit.Consume: key='%s' count=%d/%d interval=%v/%v accept=%t",
+		key, value, l.options.Slots, remain, l.options.Interval, accept)
+
 	return accept, nil
 }
 
