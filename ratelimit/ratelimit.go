@@ -3,10 +3,8 @@ package ratelimit
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log"
-	"strconv"
-	"sync"
 	"time"
 
 	"github.com/modernprogram/groupcache/v2"
@@ -46,7 +44,7 @@ type Limiter struct {
 	options Options
 	group   *groupcache.Group
 	expire  map[string]time.Time
-	lock    sync.Mutex
+	//lock    sync.Mutex
 }
 
 // DefaultGroupcacheSizeBytes is default for unspecified Options GroupcacheSizeBytes.
@@ -82,11 +80,16 @@ func New(options Options) *Limiter {
 	getter := groupcache.GetterFunc(
 		func(ctx context.Context, key string, dest groupcache.Sink) error {
 
-			expire := time.Now().Add(options.Interval)
+			count := counter{
+				Expire: time.Now().Add(options.Interval),
+			}
 
-			lim.setExpire(key, expire) // save expire
+			data, errMarshal := json.Marshal(count)
+			if errMarshal != nil {
+				return errMarshal
+			}
 
-			return dest.SetBytes([]byte("0"), expire)
+			return dest.SetBytes(data, count.Expire)
 		})
 
 	lim.group = groupcache.NewGroupWithWorkspace(options.GroupcacheWorkspace, cacheName, cacheSizeBytes, getter)
@@ -94,6 +97,12 @@ func New(options Options) *Limiter {
 	return &lim
 }
 
+type counter struct {
+	Value  int       `json:"value"`
+	Expire time.Time `json:"expire"`
+}
+
+/*
 func (l *Limiter) getExpire(key string) (time.Time, bool) {
 	l.lock.Lock()
 	e, found := l.expire[key]
@@ -106,6 +115,7 @@ func (l *Limiter) setExpire(key string, expire time.Time) {
 	l.expire[key] = expire
 	l.lock.Unlock()
 }
+*/
 
 // Consume attempts to consume the rate limiter.
 // It returns true if the rate limiter allows access,
@@ -119,23 +129,36 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 		return true, errGet
 	}
 
-	str := string(dst)
-
-	counter, errConv := strconv.Atoi(str)
-	if errConv != nil {
-		return true, errConv
+	var count counter
+	errUnmarshal := json.Unmarshal(dst, &count)
+	if errUnmarshal != nil {
+		return true, errUnmarshal
 	}
 
-	counter++
-	data := []byte(strconv.Itoa(counter))
+	count.Value++
 
-	expire, hasExpire := l.getExpire(key) // keep key existing expire
-	if !hasExpire {
-		panic(fmt.Sprintf("key expire not set: key='%s'", key))
-	}
-	if expire.IsZero() {
-		panic(fmt.Sprintf("key expire is zero: key='%s'", key))
-	}
+	/*
+		str := string(dst)
+
+		counter, errConv := strconv.Atoi(str)
+		if errConv != nil {
+			return true, errConv
+		}
+
+		counter++
+		data := []byte(strconv.Itoa(counter))
+	*/
+
+	//expire, hasExpire := l.getExpire(key) // keep key existing expire
+
+	/*
+		if !hasExpire {
+			panic(fmt.Sprintf("key expire not set: key='%s'", key))
+		}
+		if expire.IsZero() {
+			panic(fmt.Sprintf("key expire is zero: key='%s'", key))
+		}
+	*/
 
 	//
 	// save key back with updated value
@@ -149,29 +172,35 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 		}
 	}
 
-	remain := time.Until(expire)
+	remain := time.Until(count.Expire)
 	expired := remain < 1
 
 	// 2/2: reinsert key
+
+	data, errMarshal := json.Marshal(count)
+	if errMarshal != nil {
+		return true, errMarshal
+	}
+
 	const hotCache = false // ???
 	if l.options.ReinsertExpired {
-		if errSet := l.group.Set(ctx, key, data, expire,
+		if errSet := l.group.Set(ctx, key, data, count.Expire,
 			hotCache); errSet != nil {
 			return true, errSet
 		}
 	} else {
 		if !expired {
-			if errSet := l.group.Set(ctx, key, data, expire,
+			if errSet := l.group.Set(ctx, key, data, count.Expire,
 				hotCache); errSet != nil {
 				return true, errSet
 			}
 		}
 	}
 
-	accept := !expired && counter <= l.options.Slots
+	accept := !expired && count.Value <= l.options.Slots
 
 	log.Printf("ratelimit.Consume: key='%s' count=%d/%d interval=%v/%v expired=%t accept=%t",
-		key, counter, l.options.Slots, remain, l.options.Interval, expired, accept)
+		key, count.Value, l.options.Slots, remain, l.options.Interval, expired, accept)
 
 	return accept, nil
 }
