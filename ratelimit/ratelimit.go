@@ -150,7 +150,7 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	}
 
 	remain := time.Until(expire)
-	expired := remain > 0
+	expired := remain < 1
 
 	// 2/2: reinsert key
 	const hotCache = false // ???
