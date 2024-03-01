@@ -126,7 +126,7 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 
 	expire := l.getExpire(key) // keep key existing expire
 
-	const hotCache = true // ???
+	const hotCache = false // ???
 
 	// save key back with updated value
 	errSet := l.group.Set(ctx, key, data, expire, hotCache)
