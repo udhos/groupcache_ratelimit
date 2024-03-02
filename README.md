@@ -3,3 +3,17 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/udhos/groupcache_ratelimit.svg)](https://pkg.go.dev/github.com/udhos/groupcache_ratelimit)
 
 # groupcache_ratelimit
+
+# istio interceptionMode TPROXY
+
+In order to receive the real POD source IP to perform rate limiting,
+set POD annotation `sidecar.istio.io/interceptionMode` to `TPROXY`.
+
+```yaml
+annotations:
+  "sidecar.istio.io/interceptionMode": "TPROXY" # REDIRECT or TPROXY
+```
+
+Documentation: https://istio.io/latest/docs/reference/config/annotations/#SidecarInterceptionMode
+
+Example helm chart: https://github.com/udhos/kubecache/blob/main/charts/kubecache/values.yaml#L40
