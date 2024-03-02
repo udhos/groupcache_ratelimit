@@ -40,7 +40,6 @@ type Options struct {
 type Limiter struct {
 	options Options
 	group   *groupcache.Group
-	expire  map[string]time.Time
 }
 
 // DefaultGroupcacheSizeBytes is default for unspecified Options GroupcacheSizeBytes.
@@ -60,7 +59,6 @@ func New(options Options) *Limiter {
 
 	lim := Limiter{
 		options: options,
-		expire:  map[string]time.Time{},
 	}
 
 	cacheSizeBytes := options.GroupcacheSizeBytes
