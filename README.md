@@ -6,6 +6,8 @@
 
 # istio interceptionMode TPROXY
 
+Istio sidecard interceptionMode with REDIRECT hides real source IP.
+
 In order to receive the real POD source IP to perform rate limiting,
 set POD annotation `sidecar.istio.io/interceptionMode` to `TPROXY`.
 
