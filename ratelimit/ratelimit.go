@@ -84,6 +84,10 @@ func New(options Options) *Limiter {
 	getter := groupcache.GetterFunc(
 		func(ctx context.Context, key string, dest groupcache.Sink) error {
 
+			//
+			// create counter with zero value
+			//
+
 			count := counter{
 				Expire: time.Now().Add(options.Interval),
 			}
@@ -110,7 +114,13 @@ type counter struct {
 // Consume attempts to consume the rate limiter.
 // It returns true if the rate limiter allows access,
 // or false if the rate limiter denies access.
+// If a non-nil error is returned, the bool value is undefined,
+// don't rely on it.
 func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
+
+	//
+	// retrieve counter and increment it
+	//
 
 	var dst []byte
 
@@ -141,14 +151,13 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 	expired := remain < 1
 
 	// 2/2: reinsert key
-
-	data, errMarshal := json.Marshal(count)
-	if errMarshal != nil {
-		return true, errMarshal
-	}
-
-	const hotCache = false // ???
 	if !expired {
+		data, errMarshal := json.Marshal(count)
+		if errMarshal != nil {
+			return true, errMarshal
+		}
+
+		const hotCache = false // ???
 		if errSet := l.group.Set(ctx, key, data, count.Expire,
 			hotCache); errSet != nil {
 			return true, errSet
