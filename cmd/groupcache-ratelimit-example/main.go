@@ -4,26 +4,30 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"time"
 
+	"github.com/modernprogram/groupcache/v2"
 	"github.com/udhos/groupcache_ratelimit/ratelimit"
 )
 
 func main() {
 
-	var lim *ratelimit.Limiter
+	var lim limiter
 
 	interval := 1 * time.Second
 
 	lim = newLimiter(interval, 5)
-	send(lim, 5)
+	send(lim.rateLimiter, 5)
+	lim.stop()
 
 	lim = newLimiter(interval, 5)
-	send(lim, 10)
-	send(lim, 10)
+	send(lim.rateLimiter, 10)
+	send(lim.rateLimiter, 10)
 
 	sleep(interval)
-	send(lim, 10)
+	send(lim.rateLimiter, 10)
+	lim.stop()
 }
 
 func sleep(d time.Duration) {
@@ -31,21 +35,54 @@ func sleep(d time.Duration) {
 	time.Sleep(d)
 }
 
-func newLimiter(interval time.Duration, slots int) *ratelimit.Limiter {
+type limiter struct {
+	rateLimiter *ratelimit.Limiter
+	server      *http.Server
+}
 
-	groupcacheWorkspace := startGroupcache()
+func (l *limiter) stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := l.server.Shutdown(ctx)
+	if err != nil {
+		log.Printf("http server shutdown: %v", err)
+	}
+}
+
+func newLimiter(interval time.Duration, slots int) limiter {
+
+	workspace := groupcache.NewWorkspace()
 
 	log.Printf("interval=%v slots=%d", interval, slots)
+
+	addr := "127.0.0.1:5000"
+	myURL := "http://" + addr
+
+	pool := groupcache.NewHTTPPoolOptsWithWorkspace(workspace, myURL, &groupcache.HTTPPoolOptions{})
+
+	pool.Set(myURL)
 
 	options := ratelimit.Options{
 		Interval:            interval,
 		Slots:               slots,
-		GroupcacheWorkspace: groupcacheWorkspace,
+		GroupcacheWorkspace: workspace,
 	}
 
-	lim := ratelimit.New(options)
+	lim := limiter{
+		rateLimiter: ratelimit.New(options),
+		server: &http.Server{
+			Handler: pool,
+			Addr:    addr,
+		},
+	}
 
-	metrics(lim)
+	go func() {
+		log.Printf("groupcache server: listening on %s", addr)
+		err := lim.server.ListenAndServe()
+		log.Printf("groupcache server %s: exited: %v", addr, err)
+	}()
+
+	metrics(lim.rateLimiter)
 
 	return lim
 }

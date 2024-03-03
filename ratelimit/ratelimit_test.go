@@ -116,7 +116,7 @@ func send(t *testing.T, lim *Limiter, key string, n int, expectAccept bool) {
 	for i := 1; i <= n; i++ {
 		accept, errLim := lim.Consume(context.TODO(), key)
 		if errLim != nil {
-			t.Logf("Consume error: %v", errLim)
+			t.Errorf("Consume error: %v", errLim)
 		}
 		if expectAccept != accept {
 			t.Errorf("%d/%d: accept: key=%s expected=%v got=%v",
