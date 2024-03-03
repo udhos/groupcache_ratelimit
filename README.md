@@ -49,7 +49,7 @@ if errGroup != nil {
 }
 
 //
-// Create the rate limiter: 60 slots at every 30-seconds interval.
+// Create the rate limiter: 60 slots at every 30-second interval.
 //
 optionsLim := ratelimit.Options{
     Interval:            30 * time.Second,
