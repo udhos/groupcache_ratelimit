@@ -164,6 +164,10 @@ func (l *Limiter) Consume(ctx context.Context, key string) (bool, error) {
 		}
 	}
 
+	//
+	// Return rate limiting decision
+	//
+
 	accept := !expired && count.Value <= l.options.Slots
 
 	if l.options.Debug {

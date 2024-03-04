@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestRateLimit(t *testing.T) {
 	var servers []*testServer
 	var peers []string
 
-	for i := 0; i < numServers; i++ {
+	for i := range numServers {
 
 		workspace := groupcache.NewWorkspace()
 
@@ -99,6 +100,54 @@ func TestRateLimit(t *testing.T) {
 	send(t, lim, "key2", 50, false)
 
 	//
+	// Run concurrent tests
+	//
+
+	var stats testStats
+	var wg sync.WaitGroup
+	const numClients = 2
+	const period = 1 * time.Second
+	const delay = 20 * time.Millisecond
+	release := make(chan struct{})
+
+	wg.Add(numClients)
+
+	for i := range numClients {
+		go func() {
+			t.Logf("client %d: waiting", i)
+			<-release
+
+			begin := time.Now()
+
+			for time.Since(begin) < period {
+				accept, errLim := lim.Consume(context.TODO(), "key3")
+
+				switch {
+				case errLim != nil:
+					t.Errorf("client %d: ERROR: Consume: %v", i, errLim)
+					stats.error()
+				case accept:
+					stats.accept()
+				default:
+					stats.reject()
+				}
+
+				time.Sleep(delay)
+			}
+
+			wg.Done()
+			t.Logf("client %d: done", i)
+		}()
+	}
+
+	close(release)
+
+	wg.Wait()
+
+	t.Errorf("clients=%d period=%v delay=%v accepts=%d rejects=%d errors=%d",
+		numClients, period, delay, stats.accepts, stats.rejects, stats.errors)
+
+	//
 	// shutdown servers
 	//
 
@@ -130,4 +179,29 @@ type testServer struct {
 	pool      *groupcache.HTTPPool
 	server    *http.Server
 	limiter   *Limiter
+}
+
+type testStats struct {
+	lock    sync.Mutex
+	accepts int
+	rejects int
+	errors  int
+}
+
+func (s *testStats) accept() {
+	s.lock.Lock()
+	s.accepts++
+	s.lock.Unlock()
+}
+
+func (s *testStats) reject() {
+	s.lock.Lock()
+	s.rejects++
+	s.lock.Unlock()
+}
+
+func (s *testStats) error() {
+	s.lock.Lock()
+	s.errors++
+	s.lock.Unlock()
 }
